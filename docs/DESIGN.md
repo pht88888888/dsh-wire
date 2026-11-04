@@ -138,3 +138,51 @@ Cloudflare 官方 Quick Tunnels → Limitations 明写：
 **推论**：不要自己拼事件。电脑端 `sessionQuery.read()` 返回的就是合法信封，
 手机端原样透传即可——一旦"顺手规整一下"数据，历史就加载不出来。
 （踩过：手工造测试数据时只给 `seq` 和 `type`，正是这个报错。）
+
+## 10. 怎么在真实环境里验一遍
+
+单元测试过了不代表能跑。下面这套是被真 bug 打出来之后总结的验法：
+
+```bash
+# 1) 起中转
+node server/rendezvous.js --port 18907 --data /tmp/wire-rz
+
+# 2) 起"电脑"（插进 profile 用 insert，--patch 只能改既有条目）
+cat > /tmp/desktop.yml <<'YML'
+- insert:
+    - id: dsh-wire
+      name: /绝对路径/lib/index.js
+      config: { role: desktop, port: 18121, rendezvous: http://127.0.0.1:18907 }
+YML
+DSH_HOME=/tmp/h1 dsh --profile web --patch /tmp/desktop.yml --port 3097 --no-open
+
+# 3) 起"手机"（只给中转地址和配对码，地址应由中转解析出来）
+DSH_HOME=/tmp/h2 dsh --profile web --patch /tmp/mobile.yml --port 3098 --no-open
+
+# 4) 看插件自己的日志（比 DSH 的日志有用得多）
+tail -f /tmp/h1/dsh-wire/wire.log /tmp/h2/dsh-wire/wire.log
+```
+
+**注意**：ESM 不支持目录导入，`name` 必须指到 `lib/index.js`，
+写成裸目录会报 `ERR_UNSUPPORTED_DIR_IMPORT`。
+
+看日志里这几行就知道通了：
+
+```
+[desktop] 本机就绪 http://127.0.0.1:18121
+[tunnel]  就绪 https://xxx.trycloudflare.com
+[desktop] 配对码 ABC123（5 分钟内有效）
+[mobile]  代理已安装（list/read/observeSession/listSessions/prompt/workspace.follow）
+[mobile]  已连上电脑 https://xxx.trycloudflare.com，协议 1
+```
+
+### 隧道在受限网络里可能不可达
+
+本机验证时遇到过 cloudflared 能建隧道、能打印地址，但访问返回 `404`
+（响应带 `cf-ray` 却没有任何源站头）。同环境下 `curl 127.0.0.1:<port>` 是正常的。
+原因是运行环境的 cloudflared 凭据/出口策略，不是插件逻辑——
+`tunnel.js` 只负责拉起进程、抓地址、上报中转，这三步都验证过。
+
+**因此** `rendezvous` 与手机端自动解析这条路可以独立验证：手工调一次
+`/register` 把 url 指向本地端口，手机端配上 `pairCode` 照样能走通全流程。
+这也是排查"连不上"时该先分清的一步：是**找不到地址**（中转）还是**地址连不上**（隧道）。
