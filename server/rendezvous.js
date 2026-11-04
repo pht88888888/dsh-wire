@@ -284,7 +284,11 @@ export function createRendezvous(config) {
 
 			if (url.pathname === '/resolve') {
 				if (!allowed(ip)) {
-					send(res, 429, { ok: false, code: 'rate-limited', message: '太频繁了' });
+					send(res, 429, {
+						ok: false,
+						code: 'rate-limited',
+						message: '试得太频繁了，等一分钟再试'
+					});
 					return;
 				}
 				// ① 先用设备令牌换（老设备重连）。
@@ -319,12 +323,20 @@ export function createRendezvous(config) {
 					}
 					const record = codes.get(code);
 					if (record === undefined || record.expiresAt <= Date.now()) {
-						send(res, 404, { ok: false, code: 'code-expired', message: '配对码无效或已过期' });
+						send(res, 404, {
+							ok: false,
+							code: 'code-expired',
+							message: '配对码无效或已过期。回电脑端设置页点「重新生成配对码」，用新的那个'
+						});
 						return;
 					}
 					const device = devices.get(record.deviceId);
 					if (device === undefined) {
-						send(res, 404, { ok: false, code: 'device-gone', message: '设备已下线' });
+						send(res, 404, {
+						ok: false,
+						code: 'device-gone',
+						message: '电脑那边已经下线了。确认它开着、DSH 在运行，再试'
+					});
 						return;
 					}
 					// 配对码一次性：用过即焚。
