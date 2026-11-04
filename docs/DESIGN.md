@@ -81,3 +81,43 @@ Cloudflare 官方 Quick Tunnels → Limitations 明写：
 
 - `device.json`：本机在中转上的身份
 - `token.txt` / `pairing.json`：访问令牌与配对码
+
+---
+
+## 7. 会话列表的真正数据源是 `workspace/follow`（实测抓包）
+
+这是**只包装 `sessionController.list` 不够**的原因。
+
+前端加载时开的流是：
+
+```
+{"type":"open","endpoint":"workspace/follow","payload":{"args":{}}}
+→ {"type":"item","value":{"type":"baseline","value":{
+     "items":[{"workspaceId":"…","path":"/root/xxx","title":"xxx",
+               "sessionIds":["session-…"], …}],
+     "archivedSessionIds":[], "pinnedSessionIds":[]}}}
+```
+
+**每个工作区的 `sessionIds` 决定该组下显示哪些会话。**
+所以远程会话要出现在侧边栏，必须进这道流。
+
+`dsh-api-workspace-controller/lib/index.js:963` 的 `follow()` 是 async generator，
+内部用 `access.allows({kind:'session', id})` 过滤会话 id（969-972 行）。
+注入必须发生在**过滤之后**——所以包装 `follow` 并在 yield baseline 前追加，
+远程 id 就不会被权限判断丢掉。
+
+服务键是 **`workspaceController`**（namespace 才是 `workspace`）：
+`super(ctx, "workspaceController", { namespace: "workspace" })`（857 行）。
+写成 `inject: {workspace: …}` 会让插件停在 `pending (waiting for service: workspace)`。
+
+## 8. 三个只有真环境才暴露的契约差异
+
+单测全绿也不代表能跑。以下都是靠真实例跑出来的：
+
+| 差异 | 症状 | 真相 |
+|---|---|---|
+| `sessionController.list()` 返回 `{items:[…]}` 而非裸数组 | 整个会话列表消失 | 按数组 `.map()` 抛异常 |
+| `list()` 的入参是 options 对象而非裸 `AbortSignal` | 远程列表永远拉不到 | `options.signal?.addEventListener is not a function` |
+| 列表数据源是 `workspace/follow` 而非 `list()` | 数据拿到了但不显示 | 侧边栏读的是工作区的 `sessionIds` |
+
+对应的防御代码在 `lib/mobile.js` 的 `toItems()` / `withItems()` / `pickSignal()` / `wrapWorkspace()`。

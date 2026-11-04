@@ -60,10 +60,11 @@ function makeCtx() {
  * @returns {any} 客户端桩。
  */
 function makeWire(remote) {
-	const calls = { prompt: [] };
+	const calls = { prompt: [], listSignals: [] };
 	return {
 		calls,
-		async list() {
+		async list(signal) {
+			calls.listSignals.push(signal);
 			return Object.keys(remote).map((sessionId) => ({ sessionId }));
 		},
 		async read(sessionId) {
@@ -188,4 +189,54 @@ test('卸载后所有方法恢复原实现', async () => {
 	const result = await ctx.sessionController.list();
 	assert.equal(result.length, 1);
 	assert.equal(result[0].sessionId, 'local-1');
+});
+
+test('本地 list 返回分页对象 {items} 时也能合并（真实引擎的形状）', async () => {
+	// 真实引擎的 sessionController.list() 返回 {items:[...]}，不是裸数组。
+	// 若按数组处理会抛 `local.map is not a function`，导致整个会话列表消失。
+	const ctx = makeCtx();
+	ctx.sessionController.list = async () => ({ items: [{ sessionId: 'local-1' }], cursor: 'abc' });
+	const wire = makeWire({ 'remote-1': [{ seq: 0 }] });
+	installMobileProxy(ctx, wire);
+
+	const result = await ctx.sessionController.list();
+	assert.ok(!Array.isArray(result), '返回形状应与原实现一致');
+	assert.deepEqual(
+		result.items.map((item) => item.sessionId),
+		['local-1', 'remote-1']
+	);
+	assert.equal(result.cursor, 'abc', '原有字段必须保留');
+});
+
+test('本地 listSessions 返回分页对象时也能补出远程记录', async () => {
+	const ctx = makeCtx();
+	ctx.sessionQuery.listSessions = async () => ({ items: [{ header: { id: 'local-1' } }] });
+	const wire = makeWire({ 'remote-1': [{ seq: 0 }] });
+	installMobileProxy(ctx, wire);
+	await ctx.sessionController.list();
+	await ctx.sessionQuery.read('remote-1');
+
+	const result = await ctx.sessionQuery.listSessions();
+	const items = Array.isArray(result) ? result : result.items;
+	const ids = items.map((record) => record.header.id);
+	assert.ok(ids.includes('local-1'));
+	assert.ok(ids.includes('remote-1'));
+});
+
+test('list 的入参是 options 对象时，只把真正的 signal 传下去', async () => {
+	// 实测：真实引擎调 list() 时传的是 options 而不是裸 AbortSignal。
+	// 把对象当 signal 传给 fetch 会报 `options.signal?.addEventListener is not a function`。
+	const ctx = makeCtx();
+	const wire = makeWire({ 'remote-1': [{ seq: 0 }] });
+	installMobileProxy(ctx, wire);
+
+	const controller = new AbortController();
+	await ctx.sessionController.list({ signal: controller.signal });
+	await ctx.sessionController.list({});
+	await ctx.sessionController.list(controller.signal);
+
+	assert.equal(wire.calls.listSignals.length, 3);
+	assert.equal(wire.calls.listSignals[0], controller.signal, '应从 options 里取出真信号');
+	assert.equal(wire.calls.listSignals[1], undefined, '没有信号时不应传对象');
+	assert.equal(wire.calls.listSignals[2], controller.signal, '裸信号也要兼容');
 });
