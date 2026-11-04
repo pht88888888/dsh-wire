@@ -32,7 +32,14 @@ const PAIR_TTL_MS = 5 * 60 * 1000;
 const STALE_MS = 5 * 60 * 1000;
 
 /** 多久没露面就把设备彻底忘掉。宽松一点：设备身份比在线状态重要。 */
-const FORGET_DEVICE_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * 多久没有露面就忘掉一台设备。
+ *
+ * 这条线不能短：一旦忘了，手机端手里的令牌全部失效，用户得重新配对一次。
+ * 出差两周、电脑一直关着，回来发现"莫名其妙又要配对"，是最败好感的一种体验。
+ * 一条设备记录才几百字节，留 30 天的代价可以忽略。
+ */
+const FORGET_DEVICE_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** 每 IP 每分钟允许的解析次数，防止暴力猜配对码。 */
 const RESOLVE_PER_MINUTE = 20;
@@ -133,7 +140,7 @@ export function createRendezvous(config) {
 			if (record.expiresAt <= now) codes.delete(code);
 		}
 		for (const [deviceId, record] of devices) {
-			// 7 天没露面才忘掉这台设备。原来只留 1 小时，导致电脑关机一晚
+			// 30 天没露面才忘掉这台设备。原来只留 1 小时，导致电脑关机一晚
 			// 再开机时记录已被清，只能重新登记换发新令牌，手机那半边立刻失效。
 			if (now - record.updatedAt > FORGET_DEVICE_MS) devices.delete(deviceId);
 		}
