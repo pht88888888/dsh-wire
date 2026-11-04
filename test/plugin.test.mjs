@@ -16,6 +16,7 @@ import { test } from 'node:test';
 process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-wire-home-'));
 
 const plugin = await import('../lib/index.js');
+const { detectRole } = plugin;
 
 /**
  * 造一个够用的 cordis 上下文。
@@ -122,4 +123,24 @@ test('以 mobile 角色装载且未配置地址时，不抛错、只是不启用
 	} finally {
 		disposeAll();
 	}
+});
+
+test('安卓上要判成手机端，不能因为 platform 是 linux 就当成电脑', () => {
+	// 安卓的 Node 跑在 App 沙箱里，process.platform 返回 'linux'，
+	// 跟桌面机无法区分。只能靠路径特征判断。
+	const saved = { HOME: process.env.HOME, PREFIX: process.env.PREFIX, TMPDIR: process.env.TMPDIR };
+	try {
+		process.env.HOME = '/data/data/com.dsh.android/files/home';
+		process.env.PREFIX = '/data/data/com.dsh.android/files/usr';
+		assert.equal(detectRole({}), 'mobile');
+		// 显式配置依然优先，方便在电脑上模拟手机端
+		assert.equal(detectRole({ role: 'desktop' }), 'desktop');
+	} finally {
+		for (const [key, value] of Object.entries(saved)) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
+	// 桌面机的 HOME 不是 /data/data 开头
+	assert.equal(detectRole({}), 'desktop');
 });
