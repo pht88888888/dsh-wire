@@ -31,6 +31,9 @@ const PAIR_TTL_MS = 5 * 60 * 1000;
 /** 多久没有心跳就认为设备离线。 */
 const STALE_MS = 5 * 60 * 1000;
 
+/** 多久没露面就把设备彻底忘掉。宽松一点：设备身份比在线状态重要。 */
+const FORGET_DEVICE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /** 每 IP 每分钟允许的解析次数，防止暴力猜配对码。 */
 const RESOLVE_PER_MINUTE = 20;
 
@@ -130,7 +133,9 @@ export function createRendezvous(config) {
 			if (record.expiresAt <= now) codes.delete(code);
 		}
 		for (const [deviceId, record] of devices) {
-			if (now - record.updatedAt > STALE_MS * 12) devices.delete(deviceId);
+			// 7 天没露面才忘掉这台设备。原来只留 1 小时，导致电脑关机一晚
+			// 再开机时记录已被清，只能重新登记换发新令牌，手机那半边立刻失效。
+			if (now - record.updatedAt > FORGET_DEVICE_MS) devices.delete(deviceId);
 		}
 		save();
 	}, 60_000);
@@ -222,8 +227,12 @@ export function createRendezvous(config) {
 					: `dev-${randomBytes(16).toString('hex')}`;
 				const token = makeToken();
 				const pairCode = makePairCode();
+				// 重新登记要保留手机端已经拿到的令牌，否则电脑端一重启，
+				// 手机这半边又得重新配一次对。
+				const previous = devices.get(deviceId);
 				devices.set(deviceId, {
 					tokenHash: hashToken(token),
+					phoneTokenHash: previous?.phoneTokenHash,
 					url: String(body.url ?? ''),
 					accessToken: String(body.accessToken ?? ''),
 					label: String(body.label ?? '电脑'),
@@ -241,7 +250,30 @@ export function createRendezvous(config) {
 					send(res, 429, { ok: false, code: 'rate-limited', message: '太频繁了' });
 					return;
 				}
-				// ① 用配对码换（首次配对）
+				// ① 先用设备令牌换（老设备重连）。
+				//
+				// 这个顺序不能反：配对码是"用过即焚"的，而客户端配对成功后
+				// config 里往往还留着那个已经作废的码。若先看码，重连会直接
+				// 撞上 `code-expired`，永远走不到令牌分支——表现为电脑端重启后
+				// 手机再也连不上。
+				if (typeof body.deviceId === 'string' && body.deviceId !== ''
+					&& typeof body.deviceToken === 'string' && body.deviceToken !== '') {
+					const known = devices.get(body.deviceId);
+					const presented = hashToken(body.deviceToken);
+					const isPhone = known !== undefined && known.phoneTokenHash === presented;
+					if (known !== undefined && (known.tokenHash === presented || isPhone)) {
+						send(res, 200, {
+							ok: true,
+							deviceId: body.deviceId,
+							url: known.url,
+							accessToken: known.accessToken,
+							label: known.label
+						});
+						return;
+					}
+				}
+
+				// ② 再用配对码换（首次配对）
 				if (typeof body.pairCode === 'string' && body.pairCode !== '') {
 					const code = body.pairCode.toUpperCase();
 					if (!PAIR_CODE_PATTERN.test(code)) {
@@ -258,10 +290,15 @@ export function createRendezvous(config) {
 						send(res, 404, { ok: false, code: 'device-gone', message: '设备已下线' });
 						return;
 					}
-					// 配对码一次性：用过即焚，并换发新令牌（旧令牌作废）。
+					// 配对码一次性：用过即焚。
+					//
+					// 这里换发的是**手机端自己的**令牌，绝不能覆盖电脑端的 tokenHash：
+					// 两者共用一份凭据的话，手机一配对就会把电脑端踢成"非法设备"，
+					// 电脑端下次续登失败、重新登记、又换新令牌，手机端随之失效——
+					// 来回互相作废，永远连不上。
 					codes.delete(code);
 					const token = makeToken();
-					device.tokenHash = hashToken(token);
+					device.phoneTokenHash = hashToken(token);
 					device.updatedAt = Date.now();
 					save();
 					send(res, 200, {
@@ -274,23 +311,8 @@ export function createRendezvous(config) {
 					});
 					return;
 				}
-				// ② 用设备凭据换（之后每次启动）
-				const device = devices.get(String(body.deviceId ?? ''));
-				if (device === undefined) {
-					send(res, 404, { ok: false, code: 'unknown-device', message: '未知设备' });
-					return;
-				}
-				if (device.tokenHash !== hashToken(String(body.deviceToken ?? ''))) {
-					send(res, 403, { ok: false, code: 'bad-token', message: '设备令牌无效' });
-					return;
-				}
-				send(res, 200, {
-					ok: true,
-					deviceId: body.deviceId,
-					url: device.url,
-					accessToken: device.accessToken,
-					label: device.label
-				});
+				// 令牌和配对码都不匹配：这台设备从未配对过，也没拿到有效凭据。
+				send(res, 403, { ok: false, code: 'bad-token', message: '设备令牌无效，请重新配对' });
 				return;
 			}
 

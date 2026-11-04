@@ -82,12 +82,14 @@ test('隧道地址变化后，凭据解析到的是新地址（用户无需重�
 	const rz = await start();
 	try {
 		const registered = await post(rz.base, '/register', { deviceId: 'dev-c', url: 'https://old.trycloudflare.com' });
+		// 手机端拿自己的令牌（和电脑端的不是同一份）。
 		const paired = await post(rz.base, '/resolve', { pairCode: registered.body.pairCode });
 		const credentials = { deviceId: paired.body.deviceId, deviceToken: paired.body.deviceToken };
 
-		// 电脑重启，隧道换了新域名。
+		// 电脑重启，隧道换了新域名——续登用的是**电脑端**自己的令牌。
 		const renewed = await post(rz.base, '/renew', {
-			...credentials,
+			deviceId: registered.body.deviceId,
+			deviceToken: registered.body.deviceToken,
 			url: 'https://new.trycloudflare.com'
 		});
 		assert.equal(renewed.status, 200);
