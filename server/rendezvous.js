@@ -225,6 +225,36 @@ export function createRendezvous(config) {
 				const deviceId = typeof body.deviceId === 'string' && body.deviceId !== ''
 					? body.deviceId
 					: `dev-${randomBytes(16).toString('hex')}`;
+
+				// 这个 id 已经登记过了。
+				//
+				// 分两种情形，不能一律覆盖：
+				// · 带着有效凭据 → 是主人自己回来了，只更新地址，**不换令牌也不发新码**；
+				// · 没有凭据 → 别人猜到了 id，拒绝。否则谁都能把别人的设备顶掉。
+				//   用户主动"重新生成配对码"时走 reset，那是本人操作。
+				const existing = devices.get(deviceId);
+				if (existing !== undefined) {
+					const presented = hashToken(String(body.deviceToken ?? ''));
+					const mine = body.deviceToken !== undefined
+						&& (existing.tokenHash === presented || existing.phoneTokenHash === presented);
+					if (mine) {
+						existing.url = String(body.url ?? existing.url ?? '');
+						existing.accessToken = String(body.accessToken ?? existing.accessToken ?? '');
+						existing.updatedAt = Date.now();
+						save();
+						send(res, 200, { ok: true, deviceId, renewed: true });
+						return;
+					}
+					if (body.reset !== true) {
+						send(res, 409, {
+							ok: false,
+							code: 'device-exists',
+							message: '这台设备已经登记过，需要凭据才能更新；否则请在电脑端重新生成配对码'
+						});
+						return;
+					}
+				}
+
 				const token = makeToken();
 				const pairCode = makePairCode();
 				// 重新登记要保留手机端已经拿到的令牌，否则电脑端一重启，

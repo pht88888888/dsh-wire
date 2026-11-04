@@ -141,3 +141,27 @@ test('健康检查可用', async () => {
 		await rz.close();
 	}
 });
+
+test('没有凭据不能顶掉别人的设备登记', async () => {
+	const rz = await start();
+	try {
+		const registered = await post(rz.base, '/register', { deviceId: 'dev-e', url: 'https://e.trycloudflare.com' });
+		assert.equal(registered.status, 200);
+
+		// 别人猜到 deviceId，想把它指向自己的地址：拒绝。
+		const hijack = await post(rz.base, '/register', { deviceId: 'dev-e', url: 'https://evil.example.com' });
+		assert.equal(hijack.status, 409);
+
+		// 主人带着自己的令牌回来更新地址：放行，且不换发新码。
+		const mine = await post(rz.base, '/register', {
+			deviceId: 'dev-e',
+			deviceToken: registered.body.deviceToken,
+			url: 'https://moved.trycloudflare.com'
+		});
+		assert.equal(mine.status, 200);
+		assert.equal(mine.body.renewed, true);
+		assert.equal(mine.body.pairCode, undefined);
+	} finally {
+		await rz.close();
+	}
+});
