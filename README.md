@@ -36,7 +36,7 @@ dsh-wire 换一条路：**手机端不持有会话数据。**
 电脑和手机各装一次，**用 DSH 自己的插件命令**（全局 `npm i -g` 装进去不会被加载）：
 
 ```sh
-dsh plugin --profile web add dsh-wire@0.3.3
+dsh plugin --profile web add dsh-wire@0.4.1
 ```
 
 ⚠️ **一定要带版本号**。只写包名时 pnpm 会命中本地缓存，装到旧版本，
@@ -152,7 +152,7 @@ node server/rendezvous.js --port 18907 --data /var/lib/dsh-wire
 npm test
 ```
 
-43 项，覆盖：
+44 项，覆盖：
 
 - **电脑端**：鉴权、路由、序列化、长轮询的"有数据立即返回 / 无数据挂起后唤醒"
 - **手机端代理**：本地会话原样透传、远程会话转发、未经 `list` 直接按 id 打开也能命中、卸载后完整还原
