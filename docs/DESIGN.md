@@ -186,3 +186,40 @@ tail -f /tmp/h1/dsh-wire/wire.log /tmp/h2/dsh-wire/wire.log
 **因此** `rendezvous` 与手机端自动解析这条路可以独立验证：手工调一次
 `/register` 把 url 指向本地端口，手机端配上 `pairCode` 照样能走通全流程。
 这也是排查"连不上"时该先分清的一步：是**找不到地址**（中转）还是**地址连不上**（隧道）。
+
+## 11. 提问（ask / 审批）怎么接
+
+**先纠正一个容易踩的假设**：`userQuestions` 服务只有 `ask()` 和 `askTimed()`，
+**没有 `answer()`**。`ask()` 自己不存答案，它把请求交给 cordis 的 waterfall 事件
+`user-questions/request`，本机前端就是其中一个回答者：
+
+```js
+ctx.waterfall('user-questions/request', request, noAnswerer)
+```
+
+所以接管方式是**注册回答者**，不是包装方法：
+
+```js
+ctx.on('user-questions/request', async (request, next) => { … })
+```
+
+答案的形状是（`AskUserQuestionAnswer`）：
+
+```ts
+{ answers: [{ id: string, selected: string[], custom?: string }] }
+```
+
+### 三条宁可"不接管"的规矩
+
+远程功能最容易犯的错是"接管了却没人答"，把两边一起卡死。所以：
+
+1. 手机不在线（一分钟内没轮询）→ 立刻 `next()`，电脑照常弹窗；
+2. 手机在线但没答（超时 / 人走开）→ 也 `next()`；
+3. 手机接了却弹不出卡片 → 主动 `decline`，**立刻**交回电脑，而不是干等 60 秒超时。
+
+第 3 条是手机端独有的失败模式：手机端引擎要再触发一次本机的
+`user-questions/request` 才能让手机前端弹卡片，没有前端在听时会抛
+`NO_PROVIDER`——这时必须马上放手。
+
+对应实现在 `lib/server.js` 的 `pushAsk()` / `takeUndeliveredAsks()` 与
+`lib/runtime.js` 的事件注册；退路逻辑由 `test/ask.test.mjs` 覆盖。
