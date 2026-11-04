@@ -1,0 +1,29 @@
+{
+	"name": "dsh-wire",
+	"version": "0.1.0",
+	"description": "把电脑上的 DSH 会话接到手机：手机直连电脑读取真实会话，不做本地镜像。公网只传文本。",
+	"type": "module",
+	"main": "lib/index.js",
+	"exports": {
+		".": "./lib/index.js"
+	},
+	"files": [
+		"lib"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"test": "node --test test/"
+	},
+	"keywords": [
+		"dsh",
+		"dsh-plugin",
+		"remote",
+		"tunnel"
+	],
+	"license": "MIT",
+	"dsh": {
+		"plugin": true
+	}
+}
