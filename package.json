@@ -1,11 +1,12 @@
 {
 	"name": "dsh-wire",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "把电脑上的 DSH 会话接到手机：手机直连电脑读取真实会话，不做本地镜像。公网只传文本。",
 	"type": "module",
 	"main": "lib/index.js",
 	"exports": {
-		".": "./lib/index.js"
+		".": "./lib/index.js",
+		"./client": "./lib/client-ui.js"
 	},
 	"files": [
 		"lib",
@@ -29,6 +30,11 @@
 		"plugin": true,
 		"bundle": {
 			"patch": "./cordis.patch.yml"
+		},
+		"client": {
+			"inject": [],
+			"platform": "web",
+			"immediately": true
 		}
 	}
 }
