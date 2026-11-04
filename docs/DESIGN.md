@@ -121,3 +121,20 @@ Cloudflare 官方 Quick Tunnels → Limitations 明写：
 | 列表数据源是 `workspace/follow` 而非 `list()` | 数据拿到了但不显示 | 侧边栏读的是工作区的 `sessionIds` |
 
 对应的防御代码在 `lib/mobile.js` 的 `toItems()` / `withItems()` / `pickSignal()` / `wrapWorkspace()`。
+
+## 9. 事件必须带完整信封，否则历史加载失败
+
+前端校验事件形状（`dsh-api-session-controller/lib/client.js:349`），缺一项就报
+`Failed to load history: session wire event has an invalid envelope`：
+
+| 字段 | 要求 |
+|---|---|
+| `type` | string |
+| `seq` | 安全整数，`>= 0`，且不能是 `-0` |
+| `time` | 安全整数（必须存在） |
+| `data` | 必须存在且不为 `undefined` |
+| `ignorable` | 若存在则必须为 `true` |
+
+**推论**：不要自己拼事件。电脑端 `sessionQuery.read()` 返回的就是合法信封，
+手机端原样透传即可——一旦"顺手规整一下"数据，历史就加载不出来。
+（踩过：手工造测试数据时只给 `seq` 和 `type`，正是这个报错。）
