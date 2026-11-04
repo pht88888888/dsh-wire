@@ -212,7 +212,10 @@ test('prompt 构造出引擎要求的 request 形状', async () => {
 		assert.deepEqual(request.content, [{ type: 'text', text: '你好' }]);
 		assert.equal(typeof request.requestId, 'string');
 		assert.ok(request.requestId.length > 0);
-		assert.equal(source, 'user-rpc');
+		// 第二个参数必须是 AbortSignal。以前传的是字符串 'user-rpc'，
+		// DSH 内部 signal.throwIfAborted() 直接炸，消息发不出去。
+		assert.equal(typeof source?.throwIfAborted, 'function');
+		assert.equal(source?.aborted, false);
 	} finally {
 		await io.close();
 	}
