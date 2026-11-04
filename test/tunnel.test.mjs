@@ -36,3 +36,27 @@ test('api 以外的普通 trycloudflare 域名仍然接受', () => {
 	assert.equal(pick('see https://api2.trycloudflare.com'), 'https://api2.trycloudflare.com');
 	assert.equal(pick('见 https://ab-cd-ef.trycloudflare.com'), 'https://ab-cd-ef.trycloudflare.com');
 });
+
+test('自检连不通时仍然把地址交出去（本机网络差不等于隧道不能用）', async () => {
+	const { QuickTunnel } = await import('../lib/tunnel.js');
+	const seen = [];
+	const unverified = [];
+	const tunnel = new QuickTunnel({
+		localUrl: 'http://127.0.0.1:1',
+		onUrl: (url) => seen.push(url),
+		onUnverified: (url) => unverified.push(url)
+	});
+	// 把自检调成"试 1 次、不等待"，并且让它一定失败。
+	tunnel.verifyAttempts = 1;
+	tunnel.verifyDelayMs = 0;
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = () => Promise.reject(new Error('connect ECONNREFUSED'));
+	try {
+		await tunnel.confirm('https://foo-bar-baz.trycloudflare.com');
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+	assert.deepEqual(seen, ['https://foo-bar-baz.trycloudflare.com']);
+	assert.deepEqual(unverified, ['https://foo-bar-baz.trycloudflare.com']);
+	assert.equal(tunnel.url, 'https://foo-bar-baz.trycloudflare.com');
+});
