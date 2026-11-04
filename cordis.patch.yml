@@ -1,0 +1,10 @@
+# dsh-wire 的 profile 层声明。
+#
+# 有了 `dsh.bundle.patch` 指向这个文件，`dsh plugin add dsh-wire` 才会把它当作
+# profile 层加载；否则只会作为普通依赖装进去（并打印 "declares no dsh.bundle"）。
+#
+# 配置项（role / rendezvous / pairCode …）留空由用户在自己的 profile 里覆盖，
+# 这样升级插件不会冲掉用户配置。
+- insert:
+    - id: dsh-wire
+      name: 'dsh-wire'
