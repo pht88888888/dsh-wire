@@ -31,15 +31,13 @@ async function startDesktop(sessions, prompts) {
 			}
 		},
 		sessionQuery: {
-			async read(sessionId) {
+			async readSession(sessionId) {
 				const live = sessions.get(sessionId);
 				if (live === undefined) throw new Error('not found');
 				return {
-					header: { id: sessionId, title: '电脑上的会话' },
+					session: { id: sessionId, title: '电脑上的会话' },
 					events: live.events,
-					cursor: live.events.length === 0 ? -1 : live.events[live.events.length - 1].seq,
-					inheritedEventCount: 0,
-					[Symbol.dispose]() {}
+					inheritedEventCount: 0
 				};
 			}
 		},

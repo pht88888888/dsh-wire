@@ -34,15 +34,13 @@ function makeCtx(sessions, prompts) {
 			}
 		},
 		sessionQuery: {
-			async read(sessionId) {
+			async readSession(sessionId) {
 				const live = sessions.get(sessionId);
 				if (live === undefined) throw new Error(`no session ${sessionId}`);
 				return {
-					header: { id: sessionId, cwd: '/work' },
+					session: { id: sessionId, cwd: '/work' },
 					events: live.events,
-					cursor: live.events.length === 0 ? -1 : live.events[live.events.length - 1].seq,
-					inheritedEventCount: 0,
-					[Symbol.dispose]() {}
+					inheritedEventCount: 0
 				};
 			}
 		},
