@@ -189,37 +189,80 @@ tail -f /tmp/h1/dsh-wire/wire.log /tmp/h2/dsh-wire/wire.log
 
 ## 11. 提问（ask / 审批）怎么接
 
-**先纠正一个容易踩的假设**：`userQuestions` 服务只有 `ask()` 和 `askTimed()`，
-**没有 `answer()`**。`ask()` 自己不存答案，它把请求交给 cordis 的 waterfall 事件
-`user-questions/request`，本机前端就是其中一个回答者：
+### 11.1 不能监听事件，只能包装方法
+
+`userQuestions` 服务只有 `ask()` 和 `askTimed()`，没有 `answer()`。
+
+直觉上应该注册回答者：
 
 ```js
-ctx.waterfall('user-questions/request', request, noAnswerer)
+ctx.on('user-questions/request', async (request, next) => { … })   // 不成立
 ```
 
-所以接管方式是**注册回答者**，不是包装方法：
+**这条走不通**。cordis 在派发时会按插件作用域过滤监听器
+（`@deepseek-ai/cordis/lib/index.js:263`），插件自己 `on` 上去的监听器会被静默滤掉——
+不报错、不告警，只是永远不被调用。表现出来就是"注册了，但一次都没触发"。
+
+实际接管方式是**包装服务方法**：
 
 ```js
-ctx.on('user-questions/request', async (request, next) => { … })
+const questions = scoped.get('userQuestions');
+const original = questions.ask;
+questions.ask = async (request, agent) => { … }
 ```
 
-答案的形状是（`AskUserQuestionAnswer`）：
+审批同理，包 `approval.decide` 而**不是** `approval.request`——包 `decide` 才能保住
+`approval/asked` + `approval/decided` 这对审计事件，包 `request` 会把它们拆散。
 
-```ts
-{ answers: [{ id: string, selected: string[], custom?: string }] }
+注意 `ask(request, agent)` 的 agent 是**第二个参数**，不在 `request.agent` 里。
+
+### 11.2 双端竞争，而不是"手机优先"
+
+早期实现是"手机在线就先问手机，离线就交回电脑"。这个语义是错的：
+
+- 用户人在电脑前，却被手机上的弹窗挡住，得走过去；
+- 用户不在电脑前（这是远程的前提），手机恰好刚断线一分钟，请求就被电脑吞了，
+  等他连上时已经看不到任何东西。
+
+现在的做法是**两端同时挂起，谁先答谁算**：
+
+```js
+const first = await Promise.race([phoneReply, localReply]);
 ```
 
-### 三条宁可"不接管"的规矩
+- 手机先答 → 用手机的答案；
+- 本机先答 → 用本机的，**并撤掉手机上的卡片**（见 11.4）；
+- 手机离线时给 10 分钟窗口（`PHONE_AWAY_WINDOW_MS`），不是"立刻放手"。
 
-远程功能最容易犯的错是"接管了却没人答"，把两边一起卡死。所以：
+两端都不锁死：任何一端答完，另一端自动收场。
 
-1. 手机不在线（一分钟内没轮询）→ 立刻 `next()`，电脑照常弹窗；
-2. 手机在线但没答（超时 / 人走开）→ 也 `next()`；
-3. 手机接了却弹不出卡片 → 主动 `decline`，**立刻**交回电脑，而不是干等 60 秒超时。
+### 11.3 跳过 ≠ 拒绝
 
-第 3 条是手机端独有的失败模式：手机端引擎要再触发一次本机的
-`user-questions/request` 才能让手机前端弹卡片，没有前端在听时会抛
-`NO_PROVIDER`——这时必须马上放手。
+`Skip` 的正确语义是**返回空选择**，而不是 decline：
 
-对应实现在 `lib/server.js` 的 `pushAsk()` / `takeUndeliveredAsks()` 与
-`lib/runtime.js` 的事件注册；退路逻辑由 `test/ask.test.mjs` 覆盖。
+```js
+{ answers: questions.map((q) => ({ id: q.id, selected: [] })) }
+```
+
+模型收到空选择后会跳过这题继续工作。如果实现成 decline（交回电脑），
+用户的跳过就变成了"把问题推回给不在身边的电脑"，反而卡住整条对话——
+这和 Skip 按钮的字面意思完全相反。
+
+### 11.4 另一端必须自动收场
+
+双端竞争解决了"谁先答"，但没解决"另一个端怎么办"。本机先答之后，
+手机上那张卡如果还挂着，用户点下去不会有任何反应——看起来就是插件坏了。
+
+所以：
+
+- `pushAsk` 记下待决项 id，本机先答时调 `cancelAsk(id)`；
+- `/poll` 响应里带 `alive`（此刻还挂着的 id 列表），撤销时立刻唤醒长轮询；
+- 手机端拿到 `alive` 后从队列里剔掉失效条目，浮层随之收起。
+
+一个容易漏的点：`lib/client.js` 的 `poll()` 原来只挑
+`updates` / `cursor` / `asks` 三个字段，`alive` 会被静默丢掉。
+新增字段时必须同步改这里，否则"电脑端日志显示已撤销，手机毫无反应"。
+
+对应实现：`lib/server.js` 的 `pushAsk()` / `cancelAsk()` / `takeUndeliveredAsks()`，
+`lib/runtime.js` 的双端竞争包装，`lib/client-ui.js` 的浮层轮询。
+退路逻辑由 `test/ask.test.mjs` 覆盖。
