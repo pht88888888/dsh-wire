@@ -36,7 +36,7 @@ dsh-wire 换一条路：**手机端不持有会话数据。**
 电脑和手机各装一次，**用 DSH 自己的插件命令**（全局 `npm i -g` 装进去不会被加载）：
 
 ```sh
-dsh plugin --profile web add dsh-wire@0.6.3
+dsh plugin --profile web add dsh-wire@0.6.6
 ```
 
 ⚠️ **一定要带版本号**。只写包名时 pnpm 会命中本地缓存，装到旧版本，
@@ -189,6 +189,21 @@ npm test
 过程中的四个真实契约差异见 [docs/DESIGN.md](docs/DESIGN.md) 第 7-9 节。
 
 ---
+
+## 隧道起不来时，它会自己逐项检查
+
+不用再猜。隧道失败后设置页会出现一张检查表，逐项列出结果：
+
+- cloudflared 二进制（版本、路径、能不能执行）
+- 本机服务是否在正常响应
+- Cloudflare 的域名能不能解析
+- 连不连得上 Cloudflare 的 443
+- 配对中转服务是否可达
+- 有没有设置代理环境变量
+- 系统里有没有残留的 cloudflared 进程
+
+每项都给出「正常 / 注意 / 不通」和对应的下一步，还有「重新检查」按钮。
+完整的失败情况清单见 [docs/failure-modes.md](docs/failure-modes.md)。
 
 ## 万一角色认错了
 
