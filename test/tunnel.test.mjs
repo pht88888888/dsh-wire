@@ -60,3 +60,33 @@ test('自检连不通时仍然把地址交出去（本机网络差不等于隧�
 	assert.deepEqual(unverified, ['https://foo-bar-baz.trycloudflare.com']);
 	assert.equal(tunnel.url, 'https://foo-bar-baz.trycloudflare.com');
 });
+
+test('Windows 上直接启动失败时，会用 shell 再试一次', async () => {
+	const { QuickTunnel } = await import('../lib/tunnel.js');
+	const tunnel = new QuickTunnel({
+		// 指向一个不存在的命令：spawn 会 ENOENT，正是 .cmd 包装脚本的表现。
+		command: '/nonexistent/cloudflared-xyz',
+		localUrl: 'http://127.0.0.1:1'
+	});
+	tunnel.platform = 'win32';
+	tunnel.startupTimeoutMs = 50;
+	tunnel.start();
+	// 等 error 事件派发
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	assert.equal(tunnel.shellRetry, true, '应该进入 shell 重试状态');
+	tunnel.stop();
+});
+
+test('非 Windows 上不会走 shell 重试', async () => {
+	const { QuickTunnel } = await import('../lib/tunnel.js');
+	const tunnel = new QuickTunnel({
+		command: '/nonexistent/cloudflared-xyz',
+		localUrl: 'http://127.0.0.1:1'
+	});
+	tunnel.platform = 'linux';
+	tunnel.startupTimeoutMs = 50;
+	tunnel.start();
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	assert.equal(tunnel.shellRetry, undefined, 'Linux 上不该启用 shell');
+	tunnel.stop();
+});
