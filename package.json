@@ -1,6 +1,6 @@
 {
 	"name": "dsh-wire",
-	"version": "0.7.4",
+	"version": "0.7.5",
 	"description": "把电脑上的 DSH 会话接到手机：手机直连电脑读取真实会话，不做本地镜像。公网只传文本。",
 	"type": "module",
 	"main": "lib/index.js",
